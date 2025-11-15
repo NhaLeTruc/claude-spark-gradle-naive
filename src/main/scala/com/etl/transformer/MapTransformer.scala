@@ -86,11 +86,32 @@ class MapTransformer extends DataTransformer {
       if (expressionsStr.trim.isEmpty) {
         errors += "expressions parameter cannot be empty"
       } else {
-        // Validate format of expressions
+        // Validate format and SQL validity of expressions
         expressionsStr.split(",").foreach { exprPair =>
           val parts = exprPair.split(":", 2)
           if (parts.length != 2) {
             errors += s"Invalid expression format: $exprPair (expected 'alias:expression')"
+          } else {
+            val alias = parts(0).trim
+            val expression = parts(1).trim
+
+            // Validate alias is not empty
+            if (alias.isEmpty) {
+              errors += s"Empty alias in expression: $exprPair"
+            }
+
+            // Validate SQL expression by attempting to parse it
+            if (expression.nonEmpty) {
+              try {
+                // Test parse the expression - this will throw if invalid SQL
+                org.apache.spark.sql.functions.expr(expression)
+              } catch {
+                case e: Exception =>
+                  errors += s"Invalid SQL expression '$expression' for alias '$alias': ${e.getMessage}"
+              }
+            } else {
+              errors += s"Empty expression for alias '$alias'"
+            }
           }
         }
       }

@@ -106,6 +106,7 @@ class MySQLExtractor(vaultClient: Option[Any] = None) extends DataExtractor {
 
   /**
    * Get credentials from Vault or return empty map.
+   * Improved error logging for better debugging.
    */
   private def getCredentials(config: SourceConfig): Map[String, String] = {
     vaultClient match {
@@ -113,11 +114,27 @@ class MySQLExtractor(vaultClient: Option[Any] = None) extends DataExtractor {
         // Use reflection to call getSecret method
         try {
           val method = client.getClass.getMethod("getSecret", classOf[String])
-          method.invoke(client, config.credentialsPath).asInstanceOf[Map[String, String]]
+          val credentials = method.invoke(client, config.credentialsPath).asInstanceOf[Map[String, String]]
+
+          // Log success (without exposing actual credentials)
+          System.err.println(s"INFO: Successfully retrieved ${credentials.size} credential(s) from Vault path: ${config.credentialsPath}")
+          credentials
         } catch {
-          case _: Exception => Map.empty
+          case e: NoSuchMethodException =>
+            System.err.println(s"ERROR: Vault client does not have getSecret method: ${e.getMessage}")
+            Map.empty
+          case e: java.lang.reflect.InvocationTargetException =>
+            System.err.println(s"ERROR: Vault operation failed for path '${config.credentialsPath}': ${e.getCause.getMessage}")
+            Map.empty
+          case e: Exception =>
+            System.err.println(s"ERROR: Unexpected error retrieving credentials from Vault path '${config.credentialsPath}': ${e.getClass.getSimpleName} - ${e.getMessage}")
+            Map.empty
         }
-      case None => Map.empty
+      case None =>
+        if (config.credentialsPath.nonEmpty) {
+          System.err.println(s"WARNING: No Vault client configured but credentialsPath specified: ${config.credentialsPath}")
+        }
+        Map.empty
     }
   }
 

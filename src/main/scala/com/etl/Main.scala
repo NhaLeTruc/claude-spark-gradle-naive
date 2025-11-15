@@ -68,8 +68,8 @@ object Main {
       ), Some(correlationId))
 
       // T134: Dependency injection wiring
-      val yamlParser = new YAMLConfigParser()
       val vaultClient = VaultClient.fromEnvironment()
+      val yamlParser = new YAMLConfigParser(vaultClient)
       val metricsCollector = new MetricsCollector()
 
       // Initialize registries

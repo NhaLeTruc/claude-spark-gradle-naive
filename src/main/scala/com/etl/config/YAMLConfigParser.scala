@@ -8,10 +8,12 @@ import scala.jdk.CollectionConverters._
  * YAML configuration parser.
  *
  * Parses pipeline configuration from YAML format.
+ * Supports ${VAULT:path:key} placeholder substitution.
  */
-class YAMLConfigParser {
+class YAMLConfigParser(vaultClient: Option[Any] = None) {
 
   private val yaml = new Yaml()
+  private val vaultPlaceholderPattern = """\$\{VAULT:([^:]+):([^}]+)\}""".r
 
   /**
    * Parse YAML string into PipelineConfig.
@@ -149,9 +151,51 @@ class YAMLConfigParser {
     paramData match {
       case Some(params: java.util.Map[_, _]) =>
         params.asInstanceOf[java.util.Map[String, Object]].asScala.toMap.map {
-          case (k, v) => k -> v.toString
+          case (k, v) => k -> substituteVaultPlaceholders(v.toString)
         }
       case _ => Map.empty
+    }
+  }
+
+  /**
+   * Substitute ${VAULT:path:key} placeholders with actual values from Vault.
+   *
+   * Examples:
+   * - ${VAULT:database/postgres/sales:username} → actual username from Vault
+   * - ${VAULT:database/postgres/sales:password} → actual password from Vault
+   *
+   * If Vault client is not available or lookup fails, returns original string.
+   *
+   * @param value String that may contain Vault placeholders
+   * @return String with placeholders replaced by Vault values
+   */
+  private def substituteVaultPlaceholders(value: String): String = {
+    vaultClient match {
+      case Some(client) =>
+        vaultPlaceholderPattern.replaceAllIn(value, m => {
+          val path = m.group(1)
+          val key = m.group(2)
+
+          try {
+            // Use reflection to call getSecret method
+            val method = client.getClass.getMethod("getSecret", classOf[String])
+            val secrets = method.invoke(client, path).asInstanceOf[Map[String, String]]
+            secrets.getOrElse(key, {
+              System.err.println(s"WARNING: Vault key '$key' not found at path '$path', keeping placeholder")
+              m.matched
+            })
+          } catch {
+            case e: Exception =>
+              System.err.println(s"WARNING: Failed to fetch Vault secret at '$path': ${e.getMessage}, keeping placeholder")
+              m.matched
+          }
+        })
+      case None =>
+        // No vault client, check if string contains vault placeholders and warn
+        if (vaultPlaceholderPattern.findFirstIn(value).isDefined) {
+          System.err.println(s"WARNING: Vault placeholder found but no Vault client configured: $value")
+        }
+        value
     }
   }
 }
