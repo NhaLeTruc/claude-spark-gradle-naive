@@ -145,7 +145,14 @@ class JoinTransformer extends DataTransformer {
     }
 
     // Parse existing lineage from left DataFrame
-    val leftLineageJson = leftDf.select("_lineage").first().getString(0)
+    val leftLineageJson = leftDf.select("_lineage")
+      .take(1)
+      .headOption
+      .map(_.getString(0))
+      .getOrElse(throw new TransformationException(
+        transformationType = transformationType,
+        message = "Missing lineage metadata in left DataFrame"
+      ))
     val mapper = new ObjectMapper()
     mapper.registerModule(DefaultScalaModule)
     val leftLineage = mapper.readValue(leftLineageJson, classOf[LineageMetadata])
