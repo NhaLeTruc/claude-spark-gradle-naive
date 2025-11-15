@@ -172,7 +172,14 @@ class WindowingTransformer extends DataTransformer {
     }
 
     // Parse existing lineage from first row
-    val existingLineageJson = input.select("_lineage").first().getString(0)
+    val existingLineageJson = input.select("_lineage")
+      .take(1)
+      .headOption
+      .map(_.getString(0))
+      .getOrElse(throw new TransformationException(
+        transformationType = transformationType,
+        message = "Missing lineage metadata in input DataFrame"
+      ))
     val mapper = new ObjectMapper()
     mapper.registerModule(DefaultScalaModule)
     val existingLineage = mapper.readValue(existingLineageJson, classOf[LineageMetadata])

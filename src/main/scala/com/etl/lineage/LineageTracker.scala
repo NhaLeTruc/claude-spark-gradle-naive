@@ -46,7 +46,11 @@ class LineageTracker {
     }
 
     // Extract existing lineage from first row
-    val existingLineageJson = data.select("_lineage").first().getString(0)
+    val existingLineageJson = data.select("_lineage")
+      .take(1)
+      .headOption
+      .map(_.getString(0))
+      .getOrElse(return data) // If no lineage found, return data unchanged
     val existingLineage = mapper.readValue(existingLineageJson, classOf[LineageMetadata])
 
     // Update transformation chain
@@ -71,7 +75,11 @@ class LineageTracker {
     }
 
     try {
-      val lineageJson = data.select("_lineage").first().getString(0)
+      val lineageJson = data.select("_lineage")
+        .take(1)
+        .headOption
+        .map(_.getString(0))
+        .getOrElse(return None) // If no rows, return None
       Some(mapper.readValue(lineageJson, classOf[LineageMetadata]))
     } catch {
       case _: Exception => None
