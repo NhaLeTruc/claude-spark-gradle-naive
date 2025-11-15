@@ -32,7 +32,7 @@ class PipelineExecutor {
     try {
       // Phase 1: Extract
       val extractor = extractorRegistry.get(config.source.`type`)
-      val extractedData = extractor.extract(config.source)(runContext.spark)
+      val extractedData = extractor.extract(config.source)(runContext.sparkSession)
       val recordsExtracted = extractedData.count()
 
       // Phase 2: Transform
@@ -101,7 +101,7 @@ class PipelineExecutor {
     try {
       // Extract
       val extractor = extractorRegistry.get(config.source.`type`)
-      val extractedData = extractor.extract(config.source)(runContext.spark)
+      val extractedData = extractor.extract(config.source)(runContext.sparkSession)
 
       // Quality check
       val (validData, invalidData) = qualityChecker.splitValidInvalid(extractedData, config.quality)
@@ -113,7 +113,7 @@ class PipelineExecutor {
           s"/quarantine/${config.pipelineId}",
           config.pipelineId,
           runContext.runId
-        )(runContext.spark)
+        )(runContext.sparkSession)
       }
 
       val recordsExtracted = extractedData.count()

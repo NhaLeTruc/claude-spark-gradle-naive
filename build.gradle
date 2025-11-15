@@ -122,8 +122,3 @@ test {
         exceptionFormat "full"
     }
 }
-
-task wrapper(type: Wrapper) {
-    gradleVersion = '7.6.5'
-    distributionType = Wrapper.DistributionType.ALL
-}

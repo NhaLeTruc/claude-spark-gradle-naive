@@ -33,7 +33,7 @@ class JoinTransformer extends DataTransformer {
     config: TransformationConfig,
     runContext: RunContext
   ): DataFrame = {
-    implicit val spark: SparkSession = runContext.spark
+    implicit val spark: SparkSession = runContext.sparkSession
 
     // Validate configuration first
     val validation = validateConfig(config, input.schema)
