@@ -32,7 +32,7 @@ class PipelineExecutor {
     try {
       // Phase 1: Extract
       val extractor = extractorRegistry.get(config.source.`type`)
-      val extractedData = extractor.extract(config.source)(runContext.sparkSession)
+      val extractedData = extractor.extract(config.source)(runContext.sparkSession).cache()
       val recordsExtracted = extractedData.count()
 
       // Phase 2: Transform
@@ -41,12 +41,19 @@ class PipelineExecutor {
         val transformer = transformerRegistry.get(transformConfig.`type`)
         transformedData = transformer.transform(transformedData, transformConfig, runContext)
       }
+
+      // Cache transformed data before counting and loading
+      transformedData = transformedData.cache()
       val recordsTransformed = transformedData.count()
 
       // Phase 3: Load
       val loader = loaderRegistry.get(config.sink.`type`)
       val loadResult = loader.load(transformedData, config.sink, runContext)
       val recordsLoaded = loadResult.recordsWritten
+
+      // Unpersist cached data
+      extractedData.unpersist()
+      transformedData.unpersist()
 
       val endTime = System.currentTimeMillis()
 
@@ -101,23 +108,27 @@ class PipelineExecutor {
     try {
       // Extract
       val extractor = extractorRegistry.get(config.source.`type`)
-      val extractedData = extractor.extract(config.source)(runContext.sparkSession)
+      val extractedData = extractor.extract(config.source)(runContext.sparkSession).cache()
+      val recordsExtracted = extractedData.count()
 
       // Quality check
       val (validData, invalidData) = qualityChecker.splitValidInvalid(extractedData, config.quality)
 
-      // Quarantine invalid records
-      if (invalidData.count() > 0) {
+      // Cache invalid data before counting (used twice)
+      val cachedInvalidData = invalidData.cache()
+      val recordsFailed = cachedInvalidData.count()
+
+      // Quarantine invalid records (optimized: check recordsFailed instead of re-counting)
+      if (recordsFailed > 0) {
         quarantineWriter.writeQuarantine(
-          invalidData,
+          cachedInvalidData,
           s"/quarantine/${config.pipelineId}",
           config.pipelineId,
           runContext.runId
         )(runContext.sparkSession)
       }
 
-      val recordsExtracted = extractedData.count()
-      val recordsFailed = invalidData.count()
+      cachedInvalidData.unpersist()
 
       // Transform valid data
       var transformedData = validData
@@ -126,9 +137,17 @@ class PipelineExecutor {
         transformedData = transformer.transform(transformedData, transformConfig, runContext)
       }
 
+      // Cache transformed data before final count
+      transformedData = transformedData.cache()
+      val recordsTransformed = transformedData.count()
+
       // Load
       val loader = loaderRegistry.get(config.sink.`type`)
       val loadResult = loader.load(transformedData, config.sink, runContext)
+
+      // Unpersist cached data
+      extractedData.unpersist()
+      transformedData.unpersist()
 
       val endTime = System.currentTimeMillis()
 
@@ -138,7 +157,7 @@ class PipelineExecutor {
         startTimestamp = startTime,
         endTimestamp = endTime,
         recordsExtracted = recordsExtracted,
-        recordsTransformed = transformedData.count(),
+        recordsTransformed = recordsTransformed,
         recordsLoaded = loadResult.recordsWritten,
         recordsFailed = recordsFailed,
         status = "SUCCESS",

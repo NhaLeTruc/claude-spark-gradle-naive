@@ -57,6 +57,7 @@ class DataQualityChecker {
 
   /**
    * Calculate null metrics.
+   * Optimized: Use single aggregation instead of multiple filter().count() calls.
    */
   private def calculateNullMetrics(
     data: DataFrame,
@@ -69,10 +70,15 @@ class DataQualityChecker {
       return (0L, 0.0)
     }
 
-    // Count total nulls across all checked columns
-    val nullCounts = validColumns.map { colName =>
-      data.filter(col(colName).isNull).count()
+    // Optimize: Use single aggregation to count nulls in all columns at once
+    val nullCountExprs = validColumns.map { colName =>
+      sum(when(col(colName).isNull, 1).otherwise(0)).alias(s"${colName}_nulls")
     }
+
+    val nullCounts = data.agg(nullCountExprs.head, nullCountExprs.tail: _*)
+      .head()
+      .toSeq
+      .map(_.asInstanceOf[Long])
 
     val totalNulls = nullCounts.sum
     val totalCells = totalRecords * validColumns.length
@@ -97,17 +103,30 @@ class DataQualityChecker {
 
   /**
    * Get null rates for individual columns.
+   * Optimized: Use single aggregation for all null counts.
    *
    * @param data DataFrame to analyze
    * @param columns Columns to check
    * @return Map of column name to null rate
    */
   def getColumnNullRates(data: DataFrame, columns: List[String]): Map[String, Double] = {
-    val totalRecords = data.count()
     val validColumns = columns.filter(data.columns.contains)
 
-    validColumns.map { colName =>
-      val nullCount = data.filter(col(colName).isNull).count()
+    if (validColumns.isEmpty) {
+      return Map.empty
+    }
+
+    // Optimize: Get total count and all null counts in single aggregation
+    val countExpr = count(lit(1)).alias("total_count")
+    val nullCountExprs = validColumns.map { colName =>
+      sum(when(col(colName).isNull, 1).otherwise(0)).alias(s"${colName}_nulls")
+    }
+
+    val aggregated = data.agg(countExpr, nullCountExprs: _*).head()
+    val totalRecords = aggregated.getLong(0)
+
+    validColumns.zipWithIndex.map { case (colName, idx) =>
+      val nullCount = aggregated.getLong(idx + 1)
       val nullRate = if (totalRecords > 0) nullCount.toDouble / totalRecords.toDouble else 0.0
       colName -> nullRate
     }.toMap
