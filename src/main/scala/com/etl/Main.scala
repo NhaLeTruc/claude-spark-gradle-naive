@@ -89,10 +89,9 @@ object Main {
       val pipelineConfig = yamlParser.parseFile(config.pipelineConfigPath)
 
       // Create run context
-      val runContext = RunContext(
+      val runContext = RunContext.create(
         pipelineId = pipelineConfig.pipelineId,
-        runId = java.util.UUID.randomUUID().toString,
-        spark = spark
+        sparkSession = spark
       )
 
       logger.info("Executing pipeline", Map(
